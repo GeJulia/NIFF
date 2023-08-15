@@ -13,32 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F   
 from torch import Tensor
 
-from fft_big import *
-
-__all__ = [
-    "ResNet",
-    "ResNet18_Weights",
-    "ResNet34_Weights",
-    "ResNet50_Weights",
-    "ResNet101_Weights",
-    "ResNet152_Weights",
-    "ResNeXt50_32X4D_Weights",
-    "ResNeXt101_32X8D_Weights",
-    "ResNeXt101_64X4D_Weights",
-    "Wide_ResNet50_2_Weights",
-    "Wide_ResNet101_2_Weights",
-    "resnet18",
-    "resnet34",
-    "resnet50",
-    "resnet101",
-    "resnet152",
-    "resnext50_32x4d",
-    "resnext101_32x8d",
-    "resnext101_64x4d",
-    "wide_resnet50_2",
-    "wide_resnet101_2",
-]
-    
+from fft_big import *  
 
 
 def conv3x3(in_planes: int, out_planes: int, imageheight: int, imagewidth: int, stride: int = 1):
@@ -338,8 +313,6 @@ def _resnet(
     return model
 
 
-
-
 def resnet18(*, weights = None, progress: bool = True, **kwargs: Any) -> ResNet:
     """ResNet-18 from `Deep Residual Learning for Image Recognition <https://arxiv.org/pdf/1512.03385.pdf>`__.
 
@@ -362,7 +335,6 @@ def resnet18(*, weights = None, progress: bool = True, **kwargs: Any) -> ResNet:
     # weights = ResNet18_Weights.verify(weights)
 
     return _resnet(BasicBlock, [2, 2, 2, 2], progress, **kwargs)
-
 
 
 def resnet34(*, weights = None, progress: bool = True, **kwargs: Any) -> ResNet:

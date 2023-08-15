@@ -16,6 +16,7 @@ from torch import Tensor
 
 from fft_small import *
 
+
 def _make_ntuple(x, n: int):
     """
     Make n-tuple from input x. If x is an iterable, then we just convert it to tuple.
@@ -168,9 +169,7 @@ class Conv2dNormActivation(ConvNormActivation):
             inplace,
         )
 
-        
-        
-        
+           
 class Conv2dNormActivation_s(ConvNormActivation_s):
     """
     Configurable block used for Convolution2d-Normalization-Activation blocks.
@@ -218,8 +217,7 @@ class Conv2dNormActivation_s(ConvNormActivation_s):
             torch.nn.Conv2d,
         )
         
-        
-        
+           
 class SqueezeExcitation(torch.nn.Module):
     """
     This block implements the Squeeze-and-Excitation block from https://arxiv.org/abs/1709.01507 (see Fig. 1).

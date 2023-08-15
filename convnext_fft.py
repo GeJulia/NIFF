@@ -72,6 +72,7 @@ class Block(nn.Module):
         x = input + self.drop_path(x)
         return x
 
+    
 class ConvNeXt(nn.Module):
     r""" ConvNeXt
         A PyTorch impl of : `A ConvNet for the 2020s`  -
@@ -141,6 +142,7 @@ class ConvNeXt(nn.Module):
         x = self.head(x)
         return x
 
+    
 class LayerNorm(nn.Module):
     r""" LayerNorm that supports two data formats: channels_last (default) or channels_first. 
     The ordering of the dimensions in the inputs. channels_last corresponds to inputs with 
@@ -167,25 +169,30 @@ class LayerNorm(nn.Module):
             x = self.weight[:, None, None] * x + self.bias[:, None, None]
             return x
 
+        
 @register_model
 def convnext_tiny(pretrained=False,in_22k=False, **kwargs):
     model = ConvNeXt(depths=[3, 3, 9, 3], dims=[96, 192, 384, 768], **kwargs)
     return model
+
 
 @register_model
 def convnext_small(pretrained=False,in_22k=False, **kwargs):
     model = ConvNeXt(depths=[3, 3, 27, 3], dims=[96, 192, 384, 768], **kwargs)
     return model
 
+
 @register_model
 def convnext_base(pretrained=False, in_22k=False, **kwargs):
     model = ConvNeXt(depths=[3, 3, 27, 3], dims=[128, 256, 512, 1024], **kwargs)
     return model
 
+
 @register_model
 def convnext_large(pretrained=False, in_22k=False, **kwargs):
     model = ConvNeXt(depths=[3, 3, 27, 3], dims=[192, 384, 768, 1536], **kwargs)
     return model
+
 
 @register_model
 def convnext_xlarge(pretrained=False, in_22k=False, **kwargs):

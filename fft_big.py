@@ -20,8 +20,6 @@ class MLP(nn.Module):
         self.layer_mpl3 = nn.Conv2d(128, 32, 1, padding=0, groups=1)
         self.layer_mpl4 = nn.Conv2d(32, planes, 1, padding=0, groups=1)
         
-
-            
     def forward(self, x):
         x = self.layer_mpl1(x.unsqueeze(0))
         x = F.silu(x)
@@ -54,8 +52,7 @@ class FreqConv_DW_fftifft(nn.Module):
         self.mask = torch.cat([
             torch.arange(-(self.imageheight/2), (self.imageheight/2), requires_grad=True)[None, :].repeat(self.imagewidth, 1).unsqueeze(0),
             torch.arange(-(self.imagewidth/2), (self.imagewidth/2), requires_grad=True)[:, None].repeat(1, self.imagewidth).unsqueeze(0)], dim=0).cuda()
-    
-            
+      
     def forward(self, x):
         x = torch.fft.fftshift(torch.fft.fft2(x))
         weights = torch.complex(self.mlp_real(self.mask), self.mlp_imag(self.mask))
@@ -85,13 +82,11 @@ class FreqConv_DW_fft(nn.Module):
             torch.arange(-(self.imageheight/2), (self.imageheight/2), requires_grad=True)[None, :].repeat(self.imagewidth, 1).unsqueeze(0),
             torch.arange(-(self.imagewidth/2), (self.imagewidth/2), requires_grad=True)[:, None].repeat(1, self.imagewidth).unsqueeze(0)], dim=0).to(device)
     
-            
     def forward(self, x):
         x = torch.fft.fftshift(torch.fft.fft2(x))
         weights = torch.complex(self.mlp_real(self.mask), self.mlp_imag(self.mask))
         x = weights.to(self.device)*x
         return x
-
 
 
 class FreqConv_1x1_fftifft_convnnext(nn.Module):
@@ -110,8 +105,7 @@ class FreqConv_1x1_fftifft_convnnext(nn.Module):
         self.in_planes = in_planes
         self.out_planes = out_planes
         self.mlp = torch.nn.Linear(in_planes, out_planes, bias=False) 
-            
-            
+                  
     def forward(self, x):
         x = x.permute(0, 3, 1, 2)
         x = torch.fft.fft2(x)
@@ -139,7 +133,6 @@ class FreqConv_1x1_fftifft(nn.Module):
         self.out_planes = out_planes
         self.mlp = torch.nn.Linear(in_planes, out_planes, bias=False)
             
-            
     def forward(self, x):
         x = torch.fft.fft2(x)
         x = x.permute(0, 2, 3, 1)
@@ -164,7 +157,6 @@ class FreqConv_1x1_ifft(nn.Module):
         self.in_planes = in_planes
         self.out_planes = out_planes
         self.mlp = torch.nn.Linear(in_planes, out_planes, bias=False)
-            
             
     def forward(self, x):
         x = x.permute(0, 2, 3, 1)

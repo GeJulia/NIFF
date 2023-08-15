@@ -5,7 +5,6 @@
 # code from pytorch https://github.com/pytorch/vision/blob/main/torchvision/models/densenet.py
 
 
-import re
 from collections import OrderedDict
 from functools import partial
 from typing import Any, List, Optional, Tuple
@@ -17,19 +16,6 @@ import torch.utils.checkpoint as cp
 from torch import Tensor
 
 from fft_small import *
-
-
-__all__ = [
-    "DenseNet",
-    "DenseNet121_Weights",
-    "DenseNet161_Weights",
-    "DenseNet169_Weights",
-    "DenseNet201_Weights",
-    "densenet121",
-    "densenet161",
-    "densenet169",
-    "densenet201",
-]
 
 
 class _DenseLayer(nn.Module):
@@ -232,24 +218,6 @@ class DenseNet(nn.Module):
         return out
 
 
-# def _load_state_dict(model: nn.Module, weights: WeightsEnum, progress: bool) -> None:
-#     # '.'s are no longer allowed in module names, but previous _DenseLayer
-#     # has keys 'norm.1', 'relu.1', 'conv.1', 'norm.2', 'relu.2', 'conv.2'.
-#     # They are also in the checkpoints in model_urls. This pattern is used
-#     # to find such keys.
-#     pattern = re.compile(
-#         r"^(.*denselayer\d+\.(?:norm|relu|conv))\.((?:[12])\.(?:weight|bias|running_mean|running_var))$"
-#     )
-
-#     state_dict = weights.get_state_dict(progress=progress)
-#     for key in list(state_dict.keys()):
-#         res = pattern.match(key)
-#         if res:
-#             new_key = res.group(1) + res.group(2)
-#             state_dict[new_key] = state_dict[key]
-#             del state_dict[key]
-#     model.load_state_dict(state_dict)
-
 
 def _densenet(
     growth_rate: int,
@@ -262,7 +230,6 @@ def _densenet(
     model = DenseNet(growth_rate, block_config, num_init_features, **kwargs)
 
     return model
-
 
 
 def densenet121(*, weights = None, progress: bool = True, **kwargs: Any) -> DenseNet:

@@ -216,9 +216,6 @@ class MobileNetV2(nn.Module):
         return self._forward_impl(x)
 
 
-
-
-
 def mobilenet_v2(
     *, weights = None, progress: bool = True, **kwargs: Any
 ) -> MobileNetV2:
