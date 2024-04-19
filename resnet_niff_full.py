@@ -1,46 +1,65 @@
-# BSD 3-Clause License
-
-# Copyright (c) Soumith Chintala 2016, 
-# All rights reserved.
-# code from pytorch https://github.com/pytorch/vision/blob/main/torchvision/models/resnet.py
-
-
 from functools import partial
 from typing import Any, Callable, List, Optional, Type, Union
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F   
 from torch import Tensor
 
-from fft_big import *  
+from niff_small import FreqConv_DW_fftifft, FreqConv_1x1_fftifft
+from niff_full import FreqConv_full_fftifft
 
 
-def conv3x3(in_planes: int, out_planes: int, imageheight: int, imagewidth: int, stride: int = 1):
+__all__ = [
+    "ResNet",
+    "ResNet18_Weights",
+    "ResNet34_Weights",
+    "ResNet50_Weights",
+    "ResNet101_Weights",
+    "ResNet152_Weights",
+    "ResNeXt50_32X4D_Weights",
+    "ResNeXt101_32X8D_Weights",
+    "ResNeXt101_64X4D_Weights",
+    "Wide_ResNet50_2_Weights",
+    "Wide_ResNet101_2_Weights",
+    "resnet18",
+    "resnet34",
+    "resnet50",
+    "resnet101",
+    "resnet152",
+    "resnext50_32x4d",
+    "resnext101_32x8d",
+    "resnext101_64x4d",
+    "wide_resnet50_2",
+    "wide_resnet101_2",
+]
+
+
+def conv3x3(in_planes: int, out_planes: int, stride: int = 1, groups: int = 1, dilation: int = 1) -> nn.Conv2d:
     """3x3 convolution with padding"""
-    if stride == 1:
-        return nn.Sequential(FreqConv_DW_fft(in_planes, imageheight, imagewidth),
-                         FreqConv_1x1_ifft(in_planes, out_planes)
-                            )
-    else:
+    if stride == 2:
         return nn.Conv2d(
             in_planes,
             out_planes,
             kernel_size=3,
-            stride=2,
-            padding=1,
-            groups=1,
+            stride=stride,
+            padding=dilation,
+            groups=groups,
             bias=False,
-            dilation=1,
+            dilation=dilation,
         )
-
-
-def conv1x1(in_planes: int, out_planes: int, stride: int = 1):
-    """1x1 convolution"""
-    if stride == 1:
-        return FreqConv_1x1_fftifft(in_planes, out_planes)
     else:
+        if in_planes == out_planes == groups:
+            return FreqConv_DW_fftifft(in_planes)
+        else:
+            return FreqConv_full_fftifft(in_planes, out_planes)
+
+
+def conv1x1(in_planes: int, out_planes: int, stride: int = 1) -> nn.Conv2d:
+    """1x1 convolution"""
+    if stride == 2:
         return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
+    else:
+        return FreqConv_1x1_fftifft(in_planes, out_planes)
 
 
 class BasicBlock(nn.Module):
@@ -50,8 +69,6 @@ class BasicBlock(nn.Module):
         self,
         inplanes: int,
         planes: int,
-        imageheight: int,
-        imagewidth: int,
         stride: int = 1,
         downsample: Optional[nn.Module] = None,
         groups: int = 1,
@@ -67,15 +84,10 @@ class BasicBlock(nn.Module):
         if dilation > 1:
             raise NotImplementedError("Dilation > 1 not supported in BasicBlock")
         # Both self.conv1 and self.downsample layers downsample the input when stride != 1
-        self.imageheight = imageheight
-        self.imagewidth = imagewidth
-        self.conv1 = conv3x3(inplanes, planes, self.imageheight, self.imagewidth, stride)
-        # if stride == 2:
-        #     self.imageheight = int(self.imageheight/2)
-        #     self.imagewidth = int(self.imagewidth/2)
+        self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = norm_layer(planes)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes, self.imageheight, self.imagewidth)
+        self.conv2 = conv3x3(planes, planes)
         self.bn2 = norm_layer(planes)
         self.downsample = downsample
         self.stride = stride
@@ -112,8 +124,6 @@ class Bottleneck(nn.Module):
         self,
         inplanes: int,
         planes: int,
-        imageheight: int,
-        imagewidth: int,
         stride: int = 1,
         downsample: Optional[nn.Module] = None,
         groups: int = 1,
@@ -128,7 +138,7 @@ class Bottleneck(nn.Module):
         # Both self.conv2 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv1x1(inplanes, width)
         self.bn1 = norm_layer(width)
-        self.conv2 = conv3x3(width, width, imageheight, imagewidth, stride)
+        self.conv2 = conv3x3(width, width, stride, groups, dilation)
         self.bn2 = norm_layer(width)
         self.conv3 = conv1x1(width, planes * self.expansion)
         self.bn3 = norm_layer(planes * self.expansion)
@@ -194,12 +204,10 @@ class ResNet(nn.Module):
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.imageheight = 56
-        self.imagewidth = 56
-        self.layer1 = self._make_layer(block, 64, layers[0], self.imageheight, self.imagewidth)
-        self.layer2 = self._make_layer(block, 128, layers[1], self.imageheight, self.imagewidth, stride=2, dilate=replace_stride_with_dilation[0])
-        self.layer3 = self._make_layer(block, 256, layers[2], self.imageheight, self.imagewidth, stride=2, dilate=replace_stride_with_dilation[1])
-        self.layer4 = self._make_layer(block, 512, layers[3], self.imageheight, self.imagewidth, stride=2, dilate=replace_stride_with_dilation[2])
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, dilate=replace_stride_with_dilation[0])
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, dilate=replace_stride_with_dilation[1])
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
 
@@ -225,8 +233,6 @@ class ResNet(nn.Module):
         block: Type[Union[BasicBlock, Bottleneck]],
         planes: int,
         blocks: int,
-        imageheight: int,
-        imagewidth: int,
         stride: int = 1,
         dilate: bool = False,
     ) -> nn.Sequential:
@@ -237,23 +243,15 @@ class ResNet(nn.Module):
             self.dilation *= stride
             stride = 1
         if stride != 1 or self.inplanes != planes * block.expansion:
-            if stride !=1:
-                downsample = nn.Sequential(
-                    conv1x1(self.inplanes, planes * block.expansion, stride),
-                    norm_layer(planes * block.expansion),
-                )
-                self.imageheight = int(self.imageheight/2)
-                self.imagewidth = int(self.imagewidth/2)
-            else:
-                downsample = nn.Sequential(
-                    FreqConv_1x1_fftifft(self.inplanes, planes * block.expansion),
-                    norm_layer(planes * block.expansion)
-                )
+            downsample = nn.Sequential(
+                conv1x1(self.inplanes, planes * block.expansion, stride),
+                norm_layer(planes * block.expansion),
+            )
 
         layers = []
         layers.append(
             block(
-                self.inplanes, planes, self.imageheight, self.imagewidth, stride, downsample, self.groups, self.base_width, previous_dilation, norm_layer
+                self.inplanes, planes, stride, downsample, self.groups, self.base_width, previous_dilation, norm_layer
             )
         )
         self.inplanes = planes * block.expansion
@@ -262,8 +260,6 @@ class ResNet(nn.Module):
                 block(
                     self.inplanes,
                     planes,
-                    self.imageheight, 
-                    self.imagewidth,
                     groups=self.groups,
                     base_width=self.base_width,
                     dilation=self.dilation,
@@ -298,19 +294,15 @@ class ResNet(nn.Module):
 def _resnet(
     block: Type[Union[BasicBlock, Bottleneck]],
     layers: List[int],
-    # weights: Optional[WeightsEnum],
     progress: bool,
     **kwargs: Any,
 ) -> ResNet:
-    # if weights is not None:
-    #     _ovewrite_named_param(kwargs, "num_classes", len(weights.meta["categories"]))
 
     model = ResNet(block, layers, **kwargs)
 
-    # if weights is not None:
-    #     model.load_state_dict(weights.get_state_dict(progress=progress))
-
     return model
+
+
 
 
 def resnet18(*, weights = None, progress: bool = True, **kwargs: Any) -> ResNet:
@@ -332,9 +324,9 @@ def resnet18(*, weights = None, progress: bool = True, **kwargs: Any) -> ResNet:
     .. autoclass:: torchvision.models.ResNet18_Weights
         :members:
     """
-    # weights = ResNet18_Weights.verify(weights)
 
     return _resnet(BasicBlock, [2, 2, 2, 2], progress, **kwargs)
+
 
 
 def resnet34(*, weights = None, progress: bool = True, **kwargs: Any) -> ResNet:
@@ -356,7 +348,6 @@ def resnet34(*, weights = None, progress: bool = True, **kwargs: Any) -> ResNet:
     .. autoclass:: torchvision.models.ResNet34_Weights
         :members:
     """
-    # weights = ResNet34_Weights.verify(weights)
 
     return _resnet(BasicBlock, [3, 4, 6, 3], progress, **kwargs)
 
@@ -386,7 +377,6 @@ def resnet50(*, weights = None, progress: bool = True, **kwargs: Any) -> ResNet:
     .. autoclass:: torchvision.models.ResNet50_Weights
         :members:
     """
-    # weights = ResNet50_Weights.verify(weights)
 
     return _resnet(Bottleneck, [3, 4, 6, 3], progress, **kwargs)
 
@@ -446,7 +436,6 @@ def resnet152(*, weights = None, progress: bool = True, **kwargs: Any) -> ResNet
     .. autoclass:: torchvision.models.ResNet152_Weights
         :members:
     """
-    # weights = ResNet152_Weights.verify(weights)
 
     return _resnet(Bottleneck, [3, 8, 36, 3], progress, **kwargs)
 

@@ -1,17 +1,11 @@
-# BSD 3-Clause License
-
-# Copyright (c) Soumith Chintala 2016, 
-# All rights reserved.
-# code from pytorch https://github.com/pytorch/vision/blob/main/torchvision/models/mobilenetv2.py
-
-
 from functools import partial
 from typing import Any, Callable, List, Optional
 
 import torch
 from torch import nn, Tensor
 
-from misc_fft import Conv2dNormActivation_s, Conv2dNormActivation, FreqConv_1x1_fftifft
+from misc_niff import Conv2dNormActivation
+from niff_small import FreqConv_1x1_fftifft
 
 
 def _make_divisible(v: float, divisor: int, min_value: Optional[int] = None) -> int:
@@ -33,7 +27,7 @@ def _make_divisible(v: float, divisor: int, min_value: Optional[int] = None) -> 
 # necessary for backwards compatibility
 class InvertedResidual(nn.Module):
     def __init__(
-        self, inp: int, oup: int, imageheight: int, imagewidth: int, stride: int, expand_ratio: int, norm_layer: Optional[Callable[..., nn.Module]] = None
+        self, inp: int, oup: int, stride: int, expand_ratio: int, norm_layer: Optional[Callable[..., nn.Module]] = None
     ) -> None:
         super().__init__()
         self.stride = stride
@@ -50,45 +44,24 @@ class InvertedResidual(nn.Module):
         if expand_ratio != 1:
             # pw
             layers.append(
-                Conv2dNormActivation(inp, hidden_dim, imageheight, imagewidth, norm_layer=norm_layer, activation_layer=nn.ReLU6)
+                Conv2dNormActivation(inp, hidden_dim, kernel_size=1, norm_layer=norm_layer, activation_layer=nn.ReLU6)
             )
-        if stride == 1:
-            layers.extend(
-                [
-                    # dw
-                    Conv2dNormActivation(
-                        hidden_dim,
-                        hidden_dim,
-                        imageheight,
-                        imagewidth,
-                        stride=stride,
-                        groups=hidden_dim,
-                        norm_layer=norm_layer,
-                        activation_layer=nn.ReLU6,
-                    ),
-                    # pw-linear
-                    FreqConv_1x1_fftifft(hidden_dim, oup),
-                    norm_layer(oup),
-                ]
-            )
-        else:
-            layers.extend(
-                [
-                    # dw
-                    Conv2dNormActivation_s(
-                        hidden_dim,
-                        hidden_dim,
-                        stride=stride,
-                        groups=hidden_dim,
-                        norm_layer=norm_layer,
-                        activation_layer=nn.ReLU6,
-                    ),
-                    # pw-linear
-                    FreqConv_1x1_fftifft(hidden_dim, oup),
-                    norm_layer(oup),
-                ]
-            )
-            
+        layers.extend(
+            [
+                # dw
+                Conv2dNormActivation(
+                    hidden_dim,
+                    hidden_dim,
+                    stride=stride,
+                    groups=hidden_dim,
+                    norm_layer=norm_layer,
+                    activation_layer=nn.ReLU6,
+                ),
+                # pw-linear
+                FreqConv_1x1_fftifft(hidden_dim, oup),
+                norm_layer(oup),
+            ]
+        )
         self.conv = nn.Sequential(*layers)
         self.out_channels = oup
         self._is_cn = stride > 1
@@ -157,27 +130,20 @@ class MobileNetV2(nn.Module):
         # building first layer
         input_channel = _make_divisible(input_channel * width_mult, round_nearest)
         self.last_channel = _make_divisible(last_channel * max(1.0, width_mult), round_nearest)
-        self.imageheight = 224
-        self.imagewidth = 224
         features: List[nn.Module] = [
-            Conv2dNormActivation_s(3, input_channel, stride=2, norm_layer=norm_layer, activation_layer=nn.ReLU6)
+            Conv2dNormActivation(3, input_channel, stride=2, norm_layer=norm_layer, activation_layer=nn.ReLU6)
         ]
-        self.imageheight = int(self.imageheight/2)
-        self.imagewidth = int(self.imagewidth/2)
         # building inverted residual blocks
         for t, c, n, s in inverted_residual_setting:
             output_channel = _make_divisible(c * width_mult, round_nearest)
             for i in range(n):
                 stride = s if i == 0 else 1
-                features.append(block(input_channel, output_channel, self.imageheight, self.imagewidth, stride, expand_ratio=t, norm_layer=norm_layer))
-                if stride == 2:
-                    self.imageheight = int(self.imageheight/2)
-                    self.imagewidth = int(self.imagewidth/2)
+                features.append(block(input_channel, output_channel, stride, expand_ratio=t, norm_layer=norm_layer))
                 input_channel = output_channel
         # building last several layers
         features.append(
             Conv2dNormActivation(
-                input_channel, self.last_channel, self.imageheight, self.imagewidth, norm_layer=norm_layer, activation_layer=nn.ReLU6
+                input_channel, self.last_channel, kernel_size=1, norm_layer=norm_layer, activation_layer=nn.ReLU6
             )
         )
         # make it nn.Sequential
@@ -198,9 +164,6 @@ class MobileNetV2(nn.Module):
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.ones_(m.weight)
                 nn.init.zeros_(m.bias)
-            elif isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, 0, 0.01)
-                # nn.init.zeros_(m.bias)
 
     def _forward_impl(self, x: Tensor) -> Tensor:
         # This exists since TorchScript doesn't support inheritance, so the superclass method
@@ -214,6 +177,9 @@ class MobileNetV2(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         return self._forward_impl(x)
+
+
+
 
 
 def mobilenet_v2(

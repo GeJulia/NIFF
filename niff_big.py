@@ -5,16 +5,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class MLP(nn.Module):
+class MLP_big(nn.Module):
     '''
-    NIFF MLP receiving two input feature maps and outputing planes output feature maps
+    NIFF MLP receiving two input feature maps and outputing planes output multiplication weights.
     
     Args:
         planes (int): Desired number of output channels/multiplication weights.
     ''' 
     
     def __init__(self, planes): 
-        super(MLP, self).__init__()
+        super(MLP_big, self).__init__()
         self.layer_mpl1 = nn.Conv2d(2, 16, 1, padding=0, groups=1)
         self.layer_mpl2 = nn.Conv2d(16, 128, 1, padding=0, groups=1)
         self.layer_mpl3 = nn.Conv2d(128, 32, 1, padding=0, groups=1)
@@ -38,22 +38,20 @@ class FreqConv_DW_fftifft(nn.Module):
     
     Args:
         planes (int): Number of input channels.
-        imageheight (int): Feature map height.
-        imagewidth (int): Feature map width.
     '''
     
-    def __init__(self, planes, imageheight, imagewidth): 
+    def __init__(self, planes, device='cuda'): 
         super(FreqConv_DW_fftifft, self).__init__()
-        self.imageheight  = imageheight
-        self.imagewidth = imagewidth
-        self.planes = planes
-        self.mlp_imag = MLP(self.planes)
-        self.mlp_real = MLP(self.planes)
-        self.mask = torch.cat([
-            torch.arange(-(self.imageheight/2), (self.imageheight/2), requires_grad=True)[None, :].repeat(self.imagewidth, 1).unsqueeze(0),
-            torch.arange(-(self.imagewidth/2), (self.imagewidth/2), requires_grad=True)[:, None].repeat(1, self.imagewidth).unsqueeze(0)], dim=0).cuda()
+        self.device = device
+        self.mlp_imag = MLP_big(planes)
+        self.mlp_real = MLP_big(planes)
+        self.mask = None
       
     def forward(self, x):
+        if self.mask == None:
+            self.mask = torch.cat([
+            torch.arange(-(x.size(2)/2), (x.size(2)/2), requires_grad=True)[None, :].repeat(x.size(3), 1).unsqueeze(0),
+            torch.arange(-(x.size(3)/2), (x.size(3)/2), requires_grad=True)[:, None].repeat(1, x.size(2)).unsqueeze(0)], dim=0).to(self.device)
         x = torch.fft.fftshift(torch.fft.fft2(x))
         weights = torch.complex(self.mlp_real(self.mask), self.mlp_imag(self.mask))
         x = weights.cuda()*x
@@ -66,30 +64,52 @@ class FreqConv_DW_fft(nn.Module):
     
     Args:
         planes (int): Number of input channels.
-        imageheight (int): Feature map height.
-        imagewidth (int): Feature map width.
     '''
     
-    def __init__(self, planes, imageheight, imagewidth, device='cuda'): #, weights=None):
+    def __init__(self, planes, device='cuda'): 
         super(FreqConv_DW_fft, self).__init__()
-        self.imageheight  = imageheight
-        self.imagewidth = imagewidth
-        self.planes = planes
         self.device = device
-        self.mlp_imag = MLP(self.planes)
-        self.mlp_real = MLP(self.planes)
-        self.mask = torch.cat([
-            torch.arange(-(self.imageheight/2), (self.imageheight/2), requires_grad=True)[None, :].repeat(self.imagewidth, 1).unsqueeze(0),
-            torch.arange(-(self.imagewidth/2), (self.imagewidth/2), requires_grad=True)[:, None].repeat(1, self.imagewidth).unsqueeze(0)], dim=0).to(device)
+        self.mlp_imag = MLP_big(planes)
+        self.mlp_real = MLP_big(planes)
+        self.mask = None
     
     def forward(self, x):
+        if self.mask == None:
+            self.mask = torch.cat([
+            torch.arange(-(x.size(2)/2), (x.size(2)/2), requires_grad=True)[None, :].repeat(x.size(3), 1).unsqueeze(0),
+            torch.arange(-(x.size(3)/2), (x.size(3)/2), requires_grad=True)[:, None].repeat(1, x.size(2)).unsqueeze(0)], dim=0).to(self.device)
         x = torch.fft.fftshift(torch.fft.fft2(x))
         weights = torch.complex(self.mlp_real(self.mask), self.mlp_imag(self.mask))
         x = weights.to(self.device)*x
         return x
+    
+
+class FreqConv_DW_ifft(nn.Module):
+    '''
+    Depthwise convolution inlcuding the transformation into the spatial domain via IFFT.
+    
+    Args:
+        planes (int): Number of input channels.
+    '''
+    
+    def __init__(self, planes, device='cuda'): 
+        super(FreqConv_DW_ifft, self).__init__()
+        self.device = device
+        self.mlp_imag = MLP_big(planes)
+        self.mlp_real = MLP_big(planes)
+        self.mask = None
+      
+    def forward(self, x):
+        if self.mask == None:
+            self.mask = torch.cat([
+            torch.arange(-(x.size(2)/2), (x.size(2)/2), requires_grad=True)[None, :].repeat(x.size(3), 1).unsqueeze(0),
+            torch.arange(-(x.size(3)/2), (x.size(3)/2), requires_grad=True)[:, None].repeat(1, x.size(2)).unsqueeze(0)], dim=0).to(self.device)
+        weights = torch.complex(self.mlp_real(self.mask), self.mlp_imag(self.mask))
+        x = weights.cuda()*x
+        return torch.fft.ifft2(torch.fft.ifftshift(x)).real
 
 
-class FreqConv_1x1_fftifft_convnnext(nn.Module):
+class FreqConv_1x1_fftifft_convnext(nn.Module):
     '''
     1x1 Convolution inlcuding the transformation into the frequeny domain via FFT 
     and back into the spatial domain via IFFT.
@@ -101,7 +121,7 @@ class FreqConv_1x1_fftifft_convnnext(nn.Module):
     '''
     
     def __init__(self, in_planes, out_planes): 
-        super(FreqConv_1x1_fftifft_convnnext, self).__init__()
+        super(FreqConv_1x1_fftifft_convnext, self).__init__()
         self.in_planes = in_planes
         self.out_planes = out_planes
         self.mlp = torch.nn.Linear(in_planes, out_planes, bias=False) 

@@ -1,10 +1,4 @@
-# BSD 3-Clause License
-
-# Copyright (c) Soumith Chintala 2016, 
-# All rights reserved.
-# code from pytorch https://github.com/pytorch/vision/blob/main/torchvision/models/densenet.py
-
-
+import re
 from collections import OrderedDict
 from functools import partial
 from typing import Any, List, Optional, Tuple
@@ -15,24 +9,34 @@ import torch.nn.functional as F
 import torch.utils.checkpoint as cp
 from torch import Tensor
 
-from fft_small import *
+from niff_small import FreqConv_1x1_fftifft, FreqConv_1x1_ifft, FreqConv_DW_fft
+
+__all__ = [
+    "DenseNet",
+    "DenseNet121_Weights",
+    "DenseNet161_Weights",
+    "DenseNet169_Weights",
+    "DenseNet201_Weights",
+    "densenet121",
+    "densenet161",
+    "densenet169",
+    "densenet201",
+]
 
 
 class _DenseLayer(nn.Module):
     def __init__(
-        self, num_input_features: int, growth_rate: int, bn_size: int, drop_rate: float, memory_efficient: bool = False, im=32, act='silu'
+        self, num_input_features: int, growth_rate: int, bn_size: int, drop_rate: float, memory_efficient: bool = False
     ) -> None:
         super().__init__()
         self.norm1 = nn.BatchNorm2d(num_input_features)
         self.relu1 = nn.ReLU(inplace=True)
-        self.conv1 = FreqConv_1x1_fftifft(num_input_features, int(bn_size * growth_rate)) 
-        # nn.Conv2d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False)
+        self.conv1 = FreqConv_1x1_fftifft(num_input_features, bn_size * growth_rate)
 
         self.norm2 = nn.BatchNorm2d(bn_size * growth_rate)
         self.relu2 = nn.ReLU(inplace=True)
-        self.conv2 = nn.Sequential(FreqConv_DW_fft(int(bn_size * growth_rate), im, im, act=act), FreqConv_1x1_ifft(int(bn_size * growth_rate), growth_rate))
-        # nn.Conv2d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)
-
+        self.conv2 = nn.Sequential(FreqConv_DW_fft(bn_size * growth_rate), FreqConv_1x1_ifft(bn_size * growth_rate, growth_rate))
+        
         self.drop_rate = float(drop_rate)
         self.memory_efficient = memory_efficient
 
@@ -48,20 +52,20 @@ class _DenseLayer(nn.Module):
                 return True
         return False
 
-#     @torch.jit.unused  # noqa: T484
-#     def call_checkpoint_bottleneck(self, input: List[Tensor]) -> Tensor:
-#         def closure(*inputs):
-#             return self.bn_function(inputs)
+    @torch.jit.unused  # noqa: T484
+    def call_checkpoint_bottleneck(self, input: List[Tensor]) -> Tensor:
+        def closure(*inputs):
+            return self.bn_function(inputs)
 
-#         return cp.checkpoint(closure, *input)
+        return cp.checkpoint(closure, *input)
 
-#     @torch.jit._overload_method  # noqa: F811
-#     def forward(self, input: List[Tensor]) -> Tensor:  # noqa: F811
-#         pass
+    @torch.jit._overload_method  # noqa: F811
+    def forward(self, input: List[Tensor]) -> Tensor:  # noqa: F811
+        pass
 
-#     @torch.jit._overload_method  # noqa: F811
-#     def forward(self, input: Tensor) -> Tensor:  # noqa: F811
-#         pass
+    @torch.jit._overload_method  # noqa: F811
+    def forward(self, input: Tensor) -> Tensor:  # noqa: F811
+        pass
 
     # torchscript does not yet support *args, so we overload method
     # allowing it to take either a List[Tensor] or single Tensor
@@ -96,8 +100,6 @@ class _DenseBlock(nn.ModuleDict):
         growth_rate: int,
         drop_rate: float,
         memory_efficient: bool = False,
-        im = 32,
-        act = 'silu'
     ) -> None:
         super().__init__()
         for i in range(num_layers):
@@ -107,8 +109,6 @@ class _DenseBlock(nn.ModuleDict):
                 bn_size=bn_size,
                 drop_rate=drop_rate,
                 memory_efficient=memory_efficient,
-                im = im, 
-                act = act
             )
             self.add_module("denselayer%d" % (i + 1), layer)
 
@@ -126,7 +126,6 @@ class _Transition(nn.Sequential):
         self.norm = nn.BatchNorm2d(num_input_features)
         self.relu = nn.ReLU(inplace=True)
         self.conv = FreqConv_1x1_fftifft(num_input_features, num_output_features)
-        # nn.Conv2d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=False)
         self.pool = nn.AvgPool2d(kernel_size=2, stride=2)
 
 
@@ -153,7 +152,7 @@ class DenseNet(nn.Module):
         num_init_features: int = 64,
         bn_size: int = 4,
         drop_rate: float = 0,
-        num_classes: int = 1000,
+        num_classes: int = 100,
         memory_efficient: bool = False,
     ) -> None:
 
@@ -172,7 +171,6 @@ class DenseNet(nn.Module):
         )
 
         # Each denseblock
-        im = 56
         num_features = num_init_features
         for i, num_layers in enumerate(block_config):
             block = _DenseBlock(
@@ -182,8 +180,6 @@ class DenseNet(nn.Module):
                 growth_rate=growth_rate,
                 drop_rate=drop_rate,
                 memory_efficient=memory_efficient,
-                im = im, 
-                act = 'silu'
             )
             self.features.add_module("denseblock%d" % (i + 1), block)
             num_features = num_features + num_layers * growth_rate
@@ -191,7 +187,6 @@ class DenseNet(nn.Module):
                 trans = _Transition(num_input_features=num_features, num_output_features=num_features // 2)
                 self.features.add_module("transition%d" % (i + 1), trans)
                 num_features = num_features // 2
-                im = int(im/2)
 
         # Final batch norm
         self.features.add_module("norm5", nn.BatchNorm2d(num_features))
@@ -206,8 +201,6 @@ class DenseNet(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
-            # elif isinstance(m, nn.Linear):
-            #     nn.init.constant_(m.bias, 0)
 
     def forward(self, x: Tensor) -> Tensor:
         features = self.features(x)
@@ -216,7 +209,6 @@ class DenseNet(nn.Module):
         out = torch.flatten(out, 1)
         out = self.classifier(out)
         return out
-
 
 
 def _densenet(
@@ -230,6 +222,7 @@ def _densenet(
     model = DenseNet(growth_rate, block_config, num_init_features, **kwargs)
 
     return model
+
 
 
 def densenet121(*, weights = None, progress: bool = True, **kwargs: Any) -> DenseNet:

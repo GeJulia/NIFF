@@ -1,27 +1,9 @@
-# MIT License
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 
 # All rights reserved.
 
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
-
-# source code taken from https://github.com/facebookresearch/ConvNeXt
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
 
 
 import torch
@@ -30,8 +12,7 @@ import torch.nn.functional as F
 from timm.models.layers import trunc_normal_, DropPath
 from timm.models.registry import register_model
 
-from fft_big import *
-    
+from niff_big import FreqConv_DW_fftifft, FreqConv_1x1_fftifft_convnext
 
 class Block(nn.Module):
     r""" ConvNeXt Block. There are two equivalent implementations:
@@ -41,18 +22,16 @@ class Block(nn.Module):
     
     Args:
         dim (int): Number of input channels.
-        imageheight (int): Height of the feature map.
-        imagewidth (int): Width of the feature map.
         drop_path (float): Stochastic depth rate. Default: 0.0
         layer_scale_init_value (float): Init value for Layer Scale. Default: 1e-6.
     """
-    def __init__(self, dim, imageheight, imagewidth, drop_path=0., layer_scale_init_value=1e-6):
+    def __init__(self, dim, drop_path=0., layer_scale_init_value=1e-6):
         super().__init__()
-        self.dwconv = FreqConv_DW_fftifft(dim, imageheight, imagewidth) # depthwise conv
+        self.dwconv = FreqConv_DW_fftifft(dim) # depthwise conv
         self.norm = LayerNorm(dim, eps=1e-6)
-        self.pwconv1 = FreqConv_1x1_fftifft_convnext(dim, (4 * dim)) # pointwise/1x1 convs, implemented with linear layers
+        self.pwconv1 = FreqConv_1x1_fftifft_convnext(dim, 4 * dim) # pointwise/1x1 convs, implemented with linear layers
         self.act = nn.GELU()
-        self.pwconv2 = FreqConv_1x1_fftifft_convnnext((4 * dim), dim)
+        self.pwconv2 = FreqConv_1x1_fftifft_convnext(4 * dim, dim)
         self.gamma = nn.Parameter(layer_scale_init_value * torch.ones((dim)), 
                                     requires_grad=True) if layer_scale_init_value > 0 else None
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
@@ -72,7 +51,6 @@ class Block(nn.Module):
         x = input + self.drop_path(x)
         return x
 
-    
 class ConvNeXt(nn.Module):
     r""" ConvNeXt
         A PyTorch impl of : `A ConvNet for the 2020s`  -
@@ -80,8 +58,6 @@ class ConvNeXt(nn.Module):
 
     Args:
         in_chans (int): Number of input image channels. Default: 3
-        imageheight (tuple(int)): Fetaure map height at each stage. Default: [56, 28, 14, 7]
-        imagewidth (tuple(int)): Feature map width at each stage. Default: [56, 28, 14, 7]
         num_classes (int): Number of classes for classification head. Default: 1000
         depths (tuple(int)): Number of blocks at each stage. Default: [3, 3, 9, 3]
         dims (int): Feature dimension at each stage. Default: [96, 192, 384, 768]
@@ -89,7 +65,7 @@ class ConvNeXt(nn.Module):
         layer_scale_init_value (float): Init value for Layer Scale. Default: 1e-6.
         head_init_scale (float): Init scaling value for classifier weights and biases. Default: 1.
     """
-    def __init__(self, in_chans=3, imageheight=[56, 28, 14, 7], imagewidth=[56, 28, 14, 7], num_classes=100, 
+    def __init__(self, in_chans=3, num_classes=1000, 
                  depths=[3, 3, 9, 3], dims=[96, 192, 384, 768], drop_path_rate=0., 
                  layer_scale_init_value=1e-6, head_init_scale=1.,
                  ):
@@ -113,7 +89,7 @@ class ConvNeXt(nn.Module):
         cur = 0
         for i in range(4):
             stage = nn.Sequential(
-                *[Block(dim=dims[i], imageheight=imageheight[i], imagewidth=imagewidth[i], drop_path=dp_rates[cur + j], 
+                *[Block(dim=dims[i], drop_path=dp_rates[cur + j], 
                 layer_scale_init_value=layer_scale_init_value) for j in range(depths[i])]
             )
             self.stages.append(stage)
@@ -122,14 +98,8 @@ class ConvNeXt(nn.Module):
         self.norm = nn.LayerNorm(dims[-1], eps=1e-6) # final norm layer
         self.head = nn.Linear(dims[-1], num_classes)
 
-        self.apply(self._init_weights)
         self.head.weight.data.mul_(head_init_scale)
         self.head.bias.data.mul_(head_init_scale)
-
-    def _init_weights(self, m):
-        if isinstance(m, (nn.Conv2d)): #, nn.Linear)):
-            trunc_normal_(m.weight, std=.02)
-            nn.init.constant_(m.bias, 0)
 
     def forward_features(self, x):
         for i in range(4):
@@ -142,7 +112,6 @@ class ConvNeXt(nn.Module):
         x = self.head(x)
         return x
 
-    
 class LayerNorm(nn.Module):
     r""" LayerNorm that supports two data formats: channels_last (default) or channels_first. 
     The ordering of the dimensions in the inputs. channels_last corresponds to inputs with 
@@ -169,32 +138,61 @@ class LayerNorm(nn.Module):
             x = self.weight[:, None, None] * x + self.bias[:, None, None]
             return x
 
-        
+
+model_urls = {
+    "convnext_tiny_1k": "https://dl.fbaipublicfiles.com/convnext/convnext_tiny_1k_224_ema.pth",
+    "convnext_small_1k": "https://dl.fbaipublicfiles.com/convnext/convnext_small_1k_224_ema.pth",
+    "convnext_base_1k": "https://dl.fbaipublicfiles.com/convnext/convnext_base_1k_224_ema.pth",
+    "convnext_large_1k": "https://dl.fbaipublicfiles.com/convnext/convnext_large_1k_224_ema.pth",
+    "convnext_tiny_22k": "https://dl.fbaipublicfiles.com/convnext/convnext_tiny_22k_224.pth",
+    "convnext_small_22k": "https://dl.fbaipublicfiles.com/convnext/convnext_small_22k_224.pth",
+    "convnext_base_22k": "https://dl.fbaipublicfiles.com/convnext/convnext_base_22k_224.pth",
+    "convnext_large_22k": "https://dl.fbaipublicfiles.com/convnext/convnext_large_22k_224.pth",
+    "convnext_xlarge_22k": "https://dl.fbaipublicfiles.com/convnext/convnext_xlarge_22k_224.pth",
+}
+
 @register_model
 def convnext_tiny(pretrained=False,in_22k=False, **kwargs):
     model = ConvNeXt(depths=[3, 3, 9, 3], dims=[96, 192, 384, 768], **kwargs)
+    if pretrained:
+        url = model_urls['convnext_tiny_22k'] if in_22k else model_urls['convnext_tiny_1k']
+        checkpoint = torch.hub.load_state_dict_from_url(url=url, map_location="cpu", check_hash=True)
+        model.load_state_dict(checkpoint["model"])
     return model
-
 
 @register_model
 def convnext_small(pretrained=False,in_22k=False, **kwargs):
     model = ConvNeXt(depths=[3, 3, 27, 3], dims=[96, 192, 384, 768], **kwargs)
+    if pretrained:
+        url = model_urls['convnext_small_22k'] if in_22k else model_urls['convnext_small_1k']
+        checkpoint = torch.hub.load_state_dict_from_url(url=url, map_location="cpu")
+        model.load_state_dict(checkpoint["model"])
     return model
-
 
 @register_model
 def convnext_base(pretrained=False, in_22k=False, **kwargs):
     model = ConvNeXt(depths=[3, 3, 27, 3], dims=[128, 256, 512, 1024], **kwargs)
+    if pretrained:
+        url = model_urls['convnext_base_22k'] if in_22k else model_urls['convnext_base_1k']
+        checkpoint = torch.hub.load_state_dict_from_url(url=url, map_location="cpu")
+        model.load_state_dict(checkpoint["model"])
     return model
-
 
 @register_model
 def convnext_large(pretrained=False, in_22k=False, **kwargs):
     model = ConvNeXt(depths=[3, 3, 27, 3], dims=[192, 384, 768, 1536], **kwargs)
+    if pretrained:
+        url = model_urls['convnext_large_22k'] if in_22k else model_urls['convnext_large_1k']
+        checkpoint = torch.hub.load_state_dict_from_url(url=url, map_location="cpu")
+        model.load_state_dict(checkpoint["model"])
     return model
-
 
 @register_model
 def convnext_xlarge(pretrained=False, in_22k=False, **kwargs):
     model = ConvNeXt(depths=[3, 3, 27, 3], dims=[256, 512, 1024, 2048], **kwargs)
+    if pretrained:
+        assert in_22k, "only ImageNet-22K pre-trained ConvNeXt-XL is available; please set in_22k=True"
+        url = model_urls['convnext_xlarge_22k']
+        checkpoint = torch.hub.load_state_dict_from_url(url=url, map_location="cpu")
+        model.load_state_dict(checkpoint["model"])
     return model
