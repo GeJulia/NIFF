@@ -1,4 +1,4 @@
-# NIFF
+# NIFF (Neural Implicit Frequency Filters)
 
 Code for our work [As large as it gets – Studying Infinitely Large Convolutions via Neural Implicit Frequency Filters](https://openreview.net/forum?id=xRy1YRcHWj).
 We include several CNN architectures incorporating our Neural Implicit Frequency Filters (NIFF) and the code of our NIFF.
