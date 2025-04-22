@@ -1,6 +1,6 @@
 # NIFF (Neural Implicit Frequency Filters)
 
-Code for our work [As large as it gets – Studying Infinitely Large Convolutions via Neural Implicit Frequency Filters](https://openreview.net/forum?id=xRy1YRcHWj).
+Code for our work [As large as it gets – Studying Infinitely Large Convolutions via Neural Implicit Frequency Filters](https://openreview.net/forum?id=xRy1YRcHWj) accepted at TMLR with **Featured Certification** and presented at ICLR 2025 in Singapore.
 We include several convolutional neural network (CNN) architectures incorporating our Neural Implicit Frequency Filters (NIFF) and the Code of our NIFF.
 
 We introduce a new tool, NIFF, to study the effective filter size learned by CNNs. Our NIFF inherently solves the following challenges:
